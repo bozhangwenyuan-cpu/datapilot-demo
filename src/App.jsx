@@ -11,7 +11,7 @@ import {
   Lightbulb, Cpu, GitPullRequestArrow, FileSearch,
   Undo2, Redo2, Bold, Italic, Underline, Strikethrough,
   AlignLeft, AlignCenter, AlignRight, List, ListOrdered,
-  ImagePlus, Table2, Sigma, Link2,
+  ImagePlus, Table2, Sigma, Link2, AlertTriangle,
 } from "lucide-react";
 
 /* =============================================================
@@ -20,6 +20,64 @@ import {
  * 新增 IA 规范 (IA_v6.md)
  * 视口目标: 1280 × 720 (13 寸笔记本)
  * ============================================================= */
+
+// ============================================================
+// 0. 持久化 + 用户 schema + Context
+// ============================================================
+
+// useLocalStorage — state 自动持久化到 localStorage
+// 用法: const [val, setVal] = useLocalStorage("datapilot:foo", defaultVal);
+function useLocalStorage(key, initialValue) {
+  const [value, setValue] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem(key);
+      if (stored !== null) return JSON.parse(stored);
+    } catch (e) { /* JSON 解析失败 — 退回到默认值 */ }
+    return initialValue;
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) { /* localStorage 不可用 / 配额超限 — 静默忽略 */ }
+  }, [key, value]);
+  return [value, setValue];
+}
+
+// USERS — 多角色 schema(Demo 阶段 mock,生产环境从后端读)
+const USERS = [
+  {
+    id: "wenyuan",
+    name: "张文远",
+    initial: "文",
+    email: "wenyuan@hd-chip.com",
+    role: "PM · 电源管理 BU",
+    color: { bg: "#E8E2FF", ink: "#3A23B0" },
+  },
+  {
+    id: "chenyue",
+    name: "陈悦",
+    initial: "悦",
+    email: "chenyue@hd-chip.com",
+    role: "高级 PM · 电源管理 BU",
+    color: { bg: "#FCE7E7", ink: "#9B1C1C" },
+  },
+  {
+    id: "lizhiqiang",
+    name: "李志强",
+    initial: "强",
+    email: "lizhiqiang@hd-chip.com",
+    role: "PE · 电源管理 BU",
+    color: { bg: "#DBEAFE", ink: "#1E40AF" },
+  },
+];
+const DEFAULT_USER_ID = "wenyuan";
+function getUserById(id) {
+  return USERS.find(u => u.id === id) || USERS[0];
+}
+
+// Context — 全局当前用户(主区组件按需读取)
+const CurrentUserContext = React.createContext(USERS[0]);
+const useCurrentUser = () => React.useContext(CurrentUserContext);
 
 // ============================================================
 // 1. 全局样式 + tokens
@@ -376,6 +434,8 @@ const LeftSidebar = ({
   onSelectChat,
   currentChatId = null,
   chatHistory = [],
+  currentUser = USERS[0],
+  onSwitchUser,
   width = 240,
 }) => {
   const [profileOpen, setProfileOpen] = useState(false);
@@ -392,6 +452,10 @@ const LeftSidebar = ({
   // 首页:独立渲染,放在"功能"标题之上
   const homeItem = { id: "home", icon: LayoutDashboard, label: "首页" };
 
+  // badge 数 — 按当前用户的收件箱算
+  const reviewCount = (REVIEW_INBOX[currentUser.id] || []).length;
+  const publishCount = (PUBLISH_INBOX[currentUser.id] || []).length;
+
   // 功能区结构(完整)
   const funcModules = [
     { id: "writing",  icon: PenLine,         label: "写作中心",
@@ -402,15 +466,15 @@ const LeftSidebar = ({
       ],
     },
     { id: "products", icon: FolderOpen,      label: "产品中心",        single: true },
-    { id: "review",   icon: FileCheck2,      label: "审核中心",      badge: 2,
+    { id: "review",   icon: FileCheck2,      label: "审核中心",      badge: reviewCount || undefined,
       children: [
-        { id: "review-pending", label: "待我审核",  badge: 2 },
+        { id: "review-pending", label: "待我审核",  badge: reviewCount || undefined },
         { id: "review-history", label: "审核历史" },
       ],
     },
-    { id: "publish",  icon: Send,            label: "发布中心",      badge: 1,
+    { id: "publish",  icon: Send,            label: "发布中心",      badge: publishCount || undefined,
       children: [
-        { id: "publish-pending", label: "待我发布",  badge: 1 },
+        { id: "publish-pending", label: "待我发布",  badge: publishCount || undefined },
         { id: "publish-history", label: "发布历史" },
       ],
     },
@@ -482,10 +546,10 @@ const LeftSidebar = ({
           <button
             onClick={() => setProfileOpen(!profileOpen)}
             className="w-8 h-8 rounded-full text-[11px] font-semibold flex items-center justify-center hover:ring-2 hover:ring-[var(--accent)] hover:ring-offset-1 hover:ring-offset-white transition-all relative"
-            style={{ background: "#E8E2FF", color: "#3A23B0" }}
-            title="张文远"
+            style={{ background: currentUser.color.bg, color: currentUser.color.ink }}
+            title={currentUser.name}
           >
-            文
+            {currentUser.initial}
             <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--warning)] ring-[1.5px] ring-white" />
           </button>
           {profileOpen && (
@@ -493,7 +557,12 @@ const LeftSidebar = ({
               className="absolute left-full bottom-0 ml-2 w-52 bg-white border border-[var(--border)] rounded-[12px] overflow-hidden anim-menu-up"
               style={{ zIndex: 30, boxShadow: "0 12px 40px rgba(24,20,38,0.12)" }}
             >
-              <ProfileMenuContent items={profileMenu} onClose={() => setProfileOpen(false)} />
+              <ProfileMenuContent
+                items={profileMenu}
+                onClose={() => setProfileOpen(false)}
+                currentUser={currentUser}
+                onSwitchUser={onSwitchUser}
+              />
             </div>
           )}
         </div>
@@ -659,14 +728,14 @@ const LeftSidebar = ({
         >
           <div
             className="relative w-7 h-7 rounded-full text-[11px] font-semibold flex items-center justify-center flex-shrink-0"
-            style={{ background: "#E8E2FF", color: "#3A23B0" }}
+            style={{ background: currentUser.color.bg, color: currentUser.color.ink }}
           >
-            文
+            {currentUser.initial}
             <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--warning)] ring-[1.5px] ring-white" />
           </div>
           <div className="flex-1 text-left min-w-0">
-            <div className="text-[12px] font-medium text-[var(--ink)] truncate leading-tight">张文远</div>
-            <div className="text-[11px] text-[var(--ink-3)] truncate leading-tight">PM · 电源管理 BU</div>
+            <div className="text-[12px] font-medium text-[var(--ink)] truncate leading-tight">{currentUser.name}</div>
+            <div className="text-[11px] text-[var(--ink-3)] truncate leading-tight">{currentUser.role}</div>
           </div>
           <ChevronUp size={11} className={`text-[var(--ink-3)] transition-transform flex-shrink-0 ${profileOpen ? "" : "rotate-180"}`} />
         </button>
@@ -676,7 +745,12 @@ const LeftSidebar = ({
             className="absolute left-2 right-2 bg-white border border-[var(--border)] rounded-[12px] overflow-hidden anim-menu-up"
             style={{ bottom: "calc(100% - 4px)", zIndex: 30, boxShadow: "0 12px 40px rgba(24,20,38,0.12)" }}
           >
-            <ProfileMenuContent items={profileMenu} onClose={() => setProfileOpen(false)} />
+            <ProfileMenuContent
+              items={profileMenu}
+              onClose={() => setProfileOpen(false)}
+              currentUser={currentUser}
+              onSwitchUser={onSwitchUser}
+            />
           </div>
         )}
       </div>
@@ -729,12 +803,57 @@ const ChatHistoryGroup = ({ label, icon: Icon, chats, currentChatId, onSelect })
 };
 
 // 个人中心菜单
-const ProfileMenuContent = ({ items, onClose }) => (
+const ProfileMenuContent = ({ items, onClose, currentUser = USERS[0], onSwitchUser, allUsers = USERS }) => (
   <>
     <div className="px-3 pt-3 pb-2 border-b border-[var(--border)] bg-[#F4F2FA]">
-      <div className="text-[12px] font-semibold text-[var(--ink)]">张文远</div>
-      <div className="text-[11px] text-[var(--ink-3)] font-mono mt-0.5 truncate">wenyuan@hd-chip.com</div>
+      <div className="flex items-center gap-2">
+        <div
+          className="w-8 h-8 rounded-full text-[12px] font-semibold flex items-center justify-center flex-shrink-0"
+          style={{ background: currentUser.color.bg, color: currentUser.color.ink }}
+        >
+          {currentUser.initial}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[12px] font-semibold text-[var(--ink)] truncate">{currentUser.name}</div>
+          <div className="text-[11px] text-[var(--ink-3)] font-mono mt-0.5 truncate">{currentUser.email}</div>
+        </div>
+      </div>
     </div>
+    {/* 切换角色(Demo)— 只有 onSwitchUser 提供时才显示 */}
+    {onSwitchUser && allUsers.length > 1 && (
+      <div className="border-b border-[var(--border)] py-1">
+        <div className="px-3 pt-1 pb-0.5 text-[10px] text-[var(--ink-3)] tracking-wider uppercase font-mono">切换角色 · Demo</div>
+        {allUsers.map(u => {
+          const active = u.id === currentUser.id;
+          return (
+            <button
+              key={u.id}
+              onClick={() => {
+                if (!active) {
+                  onSwitchUser(u.id);
+                  onClose();
+                }
+              }}
+              className={`w-full flex items-center gap-2.5 px-3 h-9 transition-colors ${
+                active ? "bg-[#EEEAF7]" : "hover:bg-[#EEEAF7]"
+              }`}
+            >
+              <div
+                className="w-6 h-6 rounded-full text-[10px] font-semibold flex items-center justify-center flex-shrink-0"
+                style={{ background: u.color.bg, color: u.color.ink }}
+              >
+                {u.initial}
+              </div>
+              <div className="flex-1 text-left min-w-0">
+                <div className="text-[12px] font-medium text-[var(--ink)] truncate leading-tight">{u.name}</div>
+                <div className="text-[11px] text-[var(--ink-3)] truncate leading-tight">{u.role}</div>
+              </div>
+              {active && <Check size={13} strokeWidth={2.4} className="text-[var(--accent)] flex-shrink-0" />}
+            </button>
+          );
+        })}
+      </div>
+    )}
     <div className="py-1">
       {items.map((item, i) => {
         if (item.divider) {
@@ -1742,6 +1861,169 @@ const CHAPTERS_DATA = {
   },
 };
 
+// ============================================================
+// 写作中心 — 章节级 schema(批次 3)
+// ============================================================
+
+// 章节状态 4 态 + 视觉规范
+//   empty       未开始
+//   in-progress 进行中
+//   done        已完成
+//   warn        需复核(自查不合格 / 审核被拒回)
+const CHAPTER_STATUS = {
+  empty:         { label: "空白",   bg: "#F4F2FA", ink: "#9B95A8", dot: "#C9C2DD" },
+  "in-progress": { label: "写作中", bg: "#E8E2FF", ink: "#3A23B0", dot: "#5847CC" },
+  done:          { label: "已完成", bg: "#E5F5EC", ink: "#166534", dot: "#2E8B5A" },
+  warn:          { label: "需复核", bg: "#FCEFCB", ink: "#92400E", dot: "#D89020" },
+};
+// 状态循环顺序(章节顶部 badge 点击切换用)
+const CHAPTER_STATUS_CYCLE = ["empty", "in-progress", "done", "warn"];
+
+// 默认 16 章模板(所有 doc 都基于这个骨架)
+const DEFAULT_CHAPTERS = [
+  { id: "title",        num: "1",  name: "标题",         type: "text" },
+  { id: "features",     num: "2",  name: "特点",         type: "text" },
+  { id: "description",  num: "3",  name: "描述",         type: "text" },
+  { id: "applications", num: "4",  name: "典型应用",     type: "text" },
+  { id: "circuit",      num: "5",  name: "应用电路",     type: "image" },
+  { id: "package",      num: "6",  name: "封装信息",     type: "image" },
+  { id: "absmax",       num: "7",  name: "极限参数",     type: "table" },
+  { id: "recommended",  num: "8",  name: "推荐参数",     type: "table" },
+  { id: "electrical",   num: "9",  name: "电气参数",     type: "table" },
+  { id: "curves",       num: "10", name: "曲线性能图",   type: "image" },
+  { id: "function",     num: "11", name: "功能介绍",     type: "text" },
+  { id: "appguide",     num: "12", name: "应用指南",     type: "text" },
+  { id: "pcb",          num: "13", name: "PCB 应用指南", type: "image" },
+  { id: "ordering",     num: "14", name: "订购信息",     type: "table" },
+  { id: "pod",          num: "15", name: "POD 图纸",     type: "image" },
+  { id: "disclaimer",   num: "16", name: "免责声明",     type: "text" },
+];
+
+// 重点 demo 文档完整 mock(覆盖默认状态生成器)
+// 没在这里的 ppn 由 buildDefaultChapterState 按 reviewState 自动生成
+const DOC_DETAILS = {
+  "MP1582": {
+    note: "MP1582 是 MP1482 的升级版,重点突出 PG 引脚和 600kHz 频率优势。等量产实测数据回填后即可送审。",
+    chapters: {
+      title:        { status: "done",        lastModifier: "张文远", lastModifiedAt: "5 月 3 日 14:20", note: "PPN 已确认 MP1582" },
+      features:     { status: "done",        lastModifier: "张文远", lastModifiedAt: "5 月 3 日 15:10", note: "已加 PG 引脚 feature" },
+      description:  { status: "in-progress", lastModifier: "张文远", lastModifiedAt: "5 月 4 日 10:30", note: "正在重写 PG + 600kHz 段落" },
+      applications: { status: "done",        lastModifier: "张文远", lastModifiedAt: "5 月 3 日 16:00", note: "增加 5G / SSD 应用" },
+      circuit:      { status: "done",        lastModifier: "陈悦",   lastModifiedAt: "5 月 2 日 11:00", note: "标准应用图沿用 MP1482" },
+      package:      { status: "empty",       lastModifier: null,    lastModifiedAt: null,           note: "等封装最终定型(SOIC8E + QFN-9)" },
+      absmax:       { status: "done",        lastModifier: "张文远", lastModifiedAt: "5 月 3 日 13:00", note: null },
+      recommended:  { status: "done",        lastModifier: "张文远", lastModifiedAt: "5 月 3 日 13:15", note: null },
+      electrical:   { status: "warn",        lastModifier: "张文远", lastModifiedAt: "5 月 3 日 17:30", note: "PG 阈值数据等量产实测回填" },
+      curves:       { status: "warn",        lastModifier: null,    lastModifiedAt: null,           note: "等实测效率/负载瞬态曲线" },
+      function:     { status: "done",        lastModifier: "张文远", lastModifiedAt: "5 月 4 日 09:00", note: "已写 PG 软描述(客户视角)" },
+      appguide:     { status: "done",        lastModifier: "张文远", lastModifiedAt: "5 月 3 日 18:00", note: null },
+      pcb:          { status: "done",        lastModifier: "陈悦",   lastModifiedAt: "5 月 2 日 14:30", note: "PCB layout 沿用 MP1482" },
+      ordering:     { status: "done",        lastModifier: "张文远", lastModifiedAt: "5 月 3 日 11:00", note: null },
+      pod:          { status: "warn",        lastModifier: null,    lastModifiedAt: null,           note: "需要 SOIC8E + QFN-9 两版 POD" },
+      disclaimer:   { status: "done",        lastModifier: "张文远", lastModifiedAt: "5 月 3 日 10:00", note: null },
+    },
+  },
+  "TPS54824": {
+    note: "TPS54824 v0.1 — 8A 28V 同步降压(集成 FET),已提交陈悦审核。",
+    chapters: {
+      title:        { status: "done", lastModifier: "张文远", lastModifiedAt: "5 月 1 日 10:00", note: null },
+      features:     { status: "done", lastModifier: "张文远", lastModifiedAt: "5 月 1 日 11:30", note: null },
+      description:  { status: "done", lastModifier: "张文远", lastModifiedAt: "5 月 2 日 09:00", note: null },
+      applications: { status: "done", lastModifier: "张文远", lastModifiedAt: "5 月 1 日 14:00", note: null },
+      circuit:      { status: "done", lastModifier: "张文远", lastModifiedAt: "5 月 2 日 11:00", note: null },
+      package:      { status: "done", lastModifier: "张文远", lastModifiedAt: "5 月 2 日 15:30", note: "HTSSOP-20 已确定" },
+      absmax:       { status: "done", lastModifier: "张文远", lastModifiedAt: "5 月 1 日 16:00", note: null },
+      recommended:  { status: "done", lastModifier: "张文远", lastModifiedAt: "5 月 1 日 16:15", note: null },
+      electrical:   { status: "warn", lastModifier: "张文远", lastModifiedAt: "5 月 3 日 09:00", note: "陈悦反馈:bode 图相位裕度数据需补" },
+      curves:       { status: "done", lastModifier: "张文远", lastModifiedAt: "5 月 2 日 17:00", note: null },
+      function:     { status: "done", lastModifier: "张文远", lastModifiedAt: "5 月 3 日 10:30", note: null },
+      appguide:     { status: "done", lastModifier: "张文远", lastModifiedAt: "5 月 2 日 18:00", note: null },
+      pcb:          { status: "done", lastModifier: "张文远", lastModifiedAt: "5 月 3 日 11:30", note: null },
+      ordering:     { status: "done", lastModifier: "张文远", lastModifiedAt: "5 月 2 日 12:00", note: null },
+      pod:          { status: "done", lastModifier: "张文远", lastModifiedAt: "5 月 3 日 13:00", note: null },
+      disclaimer:   { status: "done", lastModifier: "张文远", lastModifiedAt: "5 月 1 日 09:30", note: null },
+    },
+  },
+};
+
+// 按 reviewState 给出每章的默认状态(没在 DOC_DETAILS 里的 ppn 用这个)
+function buildDefaultChapterState(reviewState, chapterId) {
+  if (reviewState === "approved") return "done";
+  if (reviewState === "review") {
+    return ["electrical", "curves", "pod"].includes(chapterId) ? "warn" : "done";
+  }
+  if (reviewState === "rejected") {
+    return ["electrical", "function", "curves"].includes(chapterId) ? "warn" : "done";
+  }
+  // draft:基础章节已写,描述/应用/功能进行中,图片/曲线为空
+  if (["title", "features", "absmax", "recommended", "ordering", "disclaimer"].includes(chapterId)) return "done";
+  if (["description", "applications", "function"].includes(chapterId)) return "in-progress";
+  return "empty";
+}
+
+// 取一个 doc 的完整章节详情(供 DocEditMain / WritingDoingMain 共用)
+//
+// 章节字段说明:
+//   status / lastModifier / lastModifiedAt — 状态 + 最后修改信息
+//   note      — 最新备注的文本(向后兼容字段;UI 多处用它做"一行预览")
+//   notes[]   — 备注完整列表(每条:id / author / atMs / text);最新一条放在 [0]
+function getDocDetails(product) {
+  const ppn = typeof product === "string" ? product : product?.ppn;
+  const reviewState = (typeof product === "object" && product?.reviewState) || "draft";
+  const detailMock = ppn ? DOC_DETAILS[ppn] : null;
+
+  const chapters = DEFAULT_CHAPTERS.map(ch => {
+    const detail = detailMock?.chapters?.[ch.id];
+    if (detail) {
+      // 把 mock 里的单条 note 转成 notes[] —— mock 简洁,UI 层得到完整结构
+      const notes = detail.note
+        ? [{
+            id: `${ch.id}-note-1`,
+            author: detail.lastModifier || "—",
+            atMs: Date.now(),
+            text: detail.note,
+          }]
+        : [];
+      return { ...ch, ...detail, notes };
+    }
+    return {
+      ...ch,
+      status: buildDefaultChapterState(reviewState, ch.id),
+      lastModifier: null,
+      lastModifiedAt: null,
+      note: null,
+      notes: [],
+    };
+  });
+
+  return {
+    note: detailMock?.note || null,
+    chapters,
+  };
+}
+
+// 进度统计 — 4 状态 + 完成度百分比
+function computeChapterProgress(chapters) {
+  const total = chapters.length;
+  const done = chapters.filter(ch => ch.status === "done").length;
+  const inProgress = chapters.filter(ch => ch.status === "in-progress").length;
+  const warn = chapters.filter(ch => ch.status === "warn").length;
+  const empty = chapters.filter(ch => ch.status === "empty").length;
+  return {
+    total, done, inProgress, warn, empty,
+    percent: total > 0 ? Math.round(done / total * 100) : 0,
+  };
+}
+
+// 取最新修改信息(用于卡片底部「最后修改 XX · X 时间」)
+// 字符串排序("5 月 X 日 HH:MM" 在 5 月内、或同 X 月内有效;跨月需要进一步处理,demo 阶段足够)
+function getLastModified(chapters) {
+  const withTime = chapters.filter(ch => ch.lastModifiedAt && ch.lastModifier);
+  if (withTime.length === 0) return null;
+  withTime.sort((a, b) => (b.lastModifiedAt || "").localeCompare(a.lastModifiedAt || ""));
+  return { modifier: withTime[0].lastModifier, at: withTime[0].lastModifiedAt };
+}
+
 // 写新手册启动引导 — 3 步问答(混合按钮 + 自由文本)
 const ONBOARDING_STEPS = [
   {
@@ -2111,7 +2393,115 @@ const ChapterContent = ({ chapter, chapterData, elecTable, originalElecTable, pi
   return null;
 };
 
+// ============================================================
+// ChapterNoteEditor — 章节备注列表 + 添加输入框
+//   props:
+//     chapter: 当前章节对象(读 notes / id)
+//     currentUser: 用于显示输入区作者头像
+//     onAdd(text): 父组件状态化添加(append 到 notes 顶部)
+//     onDelete(noteId): 删除一条
+//     onClose: 折叠编辑器
+// ============================================================
+const ChapterNoteEditor = ({ chapter, currentUser, onAdd, onDelete, onClose }) => {
+  const [draft, setDraft] = useState("");
+  const notes = chapter.notes || [];
+  // 把 atMs 转成相对时间(刚刚 / X 分钟前 / X 小时前 / X 天前 / X 月 X 日)
+  const formatTime = (ms) => {
+    if (!ms) return "";
+    const diff = Date.now() - ms;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "刚刚";
+    if (mins < 60) return `${mins} 分钟前`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours} 小时前`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days} 天前`;
+    const d = new Date(ms);
+    return `${d.getMonth() + 1} 月 ${d.getDate()} 日`;
+  };
+  const handleAdd = () => {
+    if (draft.trim()) {
+      onAdd(draft);
+      setDraft("");
+    }
+  };
+  return (
+    <div className="mt-2 pt-2 border-t border-[var(--border)]">
+      <div className="flex items-center justify-between mb-2">
+        <span className="font-mono text-[10px] text-[var(--ink-3)] tracking-wider uppercase">
+          备注 · {notes.length} 条
+        </span>
+        <button
+          onClick={onClose}
+          className="text-[10px] text-[var(--ink-3)] hover:text-[var(--ink)] font-mono"
+        >
+          收起
+        </button>
+      </div>
+
+      {/* 备注列表 */}
+      {notes.length > 0 && (
+        <div className="space-y-1.5 mb-2 max-h-[180px] overflow-y-auto scrollbar-thin">
+          {notes.map(n => (
+            <div key={n.id} className="group/note flex items-start gap-2 text-[11px] py-1 px-1.5 rounded-[4px] hover:bg-[#F4F2FA]">
+              <Lightbulb size={10} strokeWidth={2.2} className="text-[var(--warning)] mt-0.5 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-[var(--ink-2)] leading-snug whitespace-pre-wrap break-words">{n.text}</div>
+                <div className="flex items-center gap-1.5 mt-0.5 font-mono text-[10px] text-[var(--ink-3)]">
+                  <span>{n.author}</span>
+                  <span className="text-[var(--border-strong)]">·</span>
+                  <span>{formatTime(n.atMs)}</span>
+                </div>
+              </div>
+              <button
+                onClick={() => onDelete(n.id)}
+                className="opacity-0 group-hover/note:opacity-100 transition-opacity w-4 h-4 rounded-[3px] flex items-center justify-center text-[var(--ink-3)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)] flex-shrink-0"
+                title="删除"
+              >
+                <X size={10} strokeWidth={2.4} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 添加输入框 */}
+      <div className="flex items-start gap-1.5">
+        <div
+          className="w-5 h-5 rounded-full text-[9px] font-semibold flex items-center justify-center flex-shrink-0 mt-0.5"
+          style={{ background: currentUser.color.bg, color: currentUser.color.ink }}
+        >
+          {currentUser.initial}
+        </div>
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            // ⌘/Ctrl + Enter 提交
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+              e.preventDefault();
+              handleAdd();
+            }
+          }}
+          placeholder="加一条备注…(⌘ Enter 提交)"
+          rows={2}
+          className="flex-1 resize-none text-[11px] px-2 py-1.5 rounded-[6px] bg-white border border-[var(--border)] text-[var(--ink)] placeholder:text-[var(--ink-4)] focus:outline-none focus:border-[var(--accent)] leading-snug"
+        />
+        <button
+          onClick={handleAdd}
+          disabled={!draft.trim()}
+          className="h-7 px-2 rounded-[6px] text-[11px] font-medium bg-[var(--accent)] text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[var(--accent-ink)] transition-colors flex-shrink-0 flex items-center gap-1"
+        >
+          <Send size={10} strokeWidth={2.4} />
+          发送
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const DocEditMain = ({ payload }) => {
+  const currentUser = useCurrentUser();
   const product = payload?.product || "MP1582";
   const version = payload?.version || "v0.1-draft";
   const template = payload?.template || "企业 Buck v2.3";
@@ -2120,7 +2510,92 @@ const DocEditMain = ({ payload }) => {
   // 大纲宽度(展开时可拖拽,140-320 px)
   const [outlineWidth, setOutlineWidth] = useState(192);
   const [outlineDragging, setOutlineDragging] = useState(false);
+  // 章节状态下拉 + 备注弹窗的开关(共用同一 panel,简化 z-index)
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const [noteEditorOpen, setNoteEditorOpen] = useState(false);
   const docEditRef = useRef(null);
+
+  // 章节数据 — 从 getDocDetails 拿到 16 章 + 状态 + 修改人
+  // 用 ALL_PRODUCTS 找到对应的 reviewState(给非详情产品的状态生成器)
+  const productInfo = React.useMemo(() => {
+    const found = ALL_PRODUCTS.find(p => p.ppn === product);
+    return found || { ppn: product, reviewState: "draft" };
+  }, [product]);
+  const initialDocDetails = React.useMemo(() => getDocDetails(productInfo), [productInfo]);
+
+  // chapters 状态化 — 用户切换状态会就地更新(demo 内 in-memory)
+  const [chapters, setChapters] = useState(initialDocDetails.chapters);
+  // 切换 product 时重置(切换到不同手册)
+  useEffect(() => {
+    setChapters(initialDocDetails.chapters);
+    if (!initialDocDetails.chapters.find(c => c.id === activeChapter)) {
+      setActiveChapter(initialDocDetails.chapters[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productInfo.ppn]);
+
+  // 当前时间 → 「5 月 X 日 HH:MM」格式(对齐 mock 数据风格)
+  const _nowDisplay = () => {
+    const now = new Date();
+    const m = now.getMonth() + 1;
+    const d = now.getDate();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    return `${m} 月 ${d} 日 ${hh}:${mm}`;
+  };
+
+  // 直接设置章节状态(下拉菜单用)— 同时记录修改人为当前用户、修改时间为现在
+  const setChapterStatus = (chapterId, newStatus) => {
+    setChapters(prev => prev.map(ch => {
+      if (ch.id !== chapterId) return ch;
+      return {
+        ...ch,
+        status: newStatus,
+        lastModifier: currentUser.name,
+        lastModifiedAt: _nowDisplay(),
+      };
+    }));
+  };
+
+  // 添加一条章节备注(往 notes[] 最前面插入,同时更新 note 单字段做预览)
+  const addChapterNote = (chapterId, text) => {
+    const trimmed = (text || "").trim();
+    if (!trimmed) return;
+    setChapters(prev => prev.map(ch => {
+      if (ch.id !== chapterId) return ch;
+      const newNote = {
+        id: `${chapterId}-note-${Date.now()}`,
+        author: currentUser.name,
+        atMs: Date.now(),
+        text: trimmed,
+      };
+      return {
+        ...ch,
+        notes: [newNote, ...(ch.notes || [])],
+        note: trimmed, // 单字段保留为最新文本,供大纲 hover 等地预览
+        lastModifier: currentUser.name,
+        lastModifiedAt: _nowDisplay(),
+      };
+    }));
+  };
+
+  // 删除一条备注
+  const deleteChapterNote = (chapterId, noteId) => {
+    setChapters(prev => prev.map(ch => {
+      if (ch.id !== chapterId) return ch;
+      const remaining = (ch.notes || []).filter(n => n.id !== noteId);
+      return {
+        ...ch,
+        notes: remaining,
+        note: remaining[0]?.text || null,
+        lastModifier: currentUser.name,
+        lastModifiedAt: _nowDisplay(),
+      };
+    }));
+  };
+
+  const progress = computeChapterProgress(chapters);
+  const docNote = initialDocDetails.note;
 
   // 大纲拖拽逻辑
   useEffect(() => {
@@ -2144,25 +2619,6 @@ const DocEditMain = ({ payload }) => {
       window.removeEventListener("mouseup", onUp);
     };
   }, [outlineDragging]);
-
-  const chapters = [
-    { id: "title",        num: "1",  name: "标题",         type: "text",  done: true },
-    { id: "features",     num: "2",  name: "特点",         type: "text",  done: true },
-    { id: "description",  num: "3",  name: "描述",         type: "text",  current: true },
-    { id: "applications", num: "4",  name: "典型应用",     type: "text",  done: true },
-    { id: "circuit",      num: "5",  name: "应用电路",     type: "image", done: true },
-    { id: "package",      num: "6",  name: "封装信息",     type: "image" },
-    { id: "absmax",       num: "7",  name: "极限参数",     type: "table", done: true },
-    { id: "recommended",  num: "8",  name: "推荐参数",     type: "table", done: true },
-    { id: "electrical",   num: "9",  name: "电气参数",     type: "table", warn: true },
-    { id: "curves",       num: "10", name: "曲线性能图",   type: "image", warn: true },
-    { id: "function",     num: "11", name: "功能介绍",     type: "text",  done: true },
-    { id: "appguide",     num: "12", name: "应用指南",     type: "text",  done: true },
-    { id: "pcb",          num: "13", name: "PCB 应用指南", type: "image", done: true },
-    { id: "ordering",     num: "14", name: "订购信息",     type: "table", done: true },
-    { id: "pod",          num: "15", name: "POD 图纸",     type: "image", warn: true },
-    { id: "disclaimer",   num: "16", name: "免责声明",     type: "text",  done: true },
-  ];
 
   const activeChapterObj = chapters.find(c => c.id === activeChapter) || chapters[2];
   const cursorType = activeChapterObj.type;
@@ -2356,24 +2812,30 @@ const DocEditMain = ({ payload }) => {
             </button>
             {/* 收起态章节列表 — 仅显数字 */}
             <div className="flex-1 overflow-y-auto scrollbar-thin py-2 flex flex-col items-center gap-0.5">
-              {chapters.map(ch => (
-                <button
-                  key={ch.id}
-                  onClick={() => setActiveChapter(ch.id)}
-                  title={`${ch.num}. ${ch.name}`}
-                  className={`w-7 h-7 rounded-[6px] flex items-center justify-center font-mono text-[11px] transition-colors relative ${
-                    activeChapter === ch.id
-                      ? "bg-[var(--accent-soft)] text-[var(--accent-ink)] font-semibold"
-                      : "text-[var(--ink-3)] hover:bg-[#EEEAF7] hover:text-[var(--ink)]"
-                  }`}
-                >
-                  {ch.num}
-                  {ch.warn && <span className="absolute top-0.5 right-0.5 w-1 h-1 rounded-full bg-[var(--warning)]" />}
-                  {ch.done && activeChapter !== ch.id && (
-                    <span className="absolute bottom-0.5 right-0.5 w-1 h-1 rounded-full bg-[var(--success)]" />
-                  )}
-                </button>
-              ))}
+              {chapters.map(ch => {
+                const isActive = activeChapter === ch.id;
+                const showDot = !isActive && ch.status !== "empty";
+                return (
+                  <button
+                    key={ch.id}
+                    onClick={() => setActiveChapter(ch.id)}
+                    title={`${ch.num}. ${ch.name} · ${CHAPTER_STATUS[ch.status]?.label || ""}`}
+                    className={`w-7 h-7 rounded-[6px] flex items-center justify-center font-mono text-[11px] transition-colors relative ${
+                      isActive
+                        ? "bg-[var(--accent-soft)] text-[var(--accent-ink)] font-semibold"
+                        : "text-[var(--ink-3)] hover:bg-[#EEEAF7] hover:text-[var(--ink)]"
+                    }`}
+                  >
+                    {ch.num}
+                    {showDot && (
+                      <span
+                        className="absolute bottom-0.5 right-0.5 w-1 h-1 rounded-full"
+                        style={{ background: CHAPTER_STATUS[ch.status]?.dot }}
+                      />
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </aside>
         ) : (
@@ -2393,37 +2855,89 @@ const DocEditMain = ({ payload }) => {
               </button>
             </div>
             <div className="py-2 px-2.5 space-y-0.5">
-              {chapters.map(ch => (
-                <button
-                  key={ch.id}
-                  onClick={() => setActiveChapter(ch.id)}
-                  className={`w-full flex items-center gap-2 px-2 py-1 rounded-[6px] text-[12px] text-left transition-colors ${
-                    activeChapter === ch.id
-                      ? "bg-[var(--accent-soft)] text-[var(--accent-ink)] font-medium"
-                      : "text-[var(--ink-2)] hover:bg-[#EEEAF7]"
-                  }`}
-                >
-                  <span className="w-2 flex-shrink-0">
-                    {ch.done && <Check size={9} className="text-[var(--success)]" strokeWidth={3} />}
-                    {ch.current && <span className="block w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />}
-                    {ch.warn && <span className="block w-1.5 h-1.5 rounded-full bg-[var(--warning)]" />}
-                  </span>
-                  <span className="font-mono text-[11px] text-[var(--ink-3)] w-4 flex-shrink-0">{ch.num}</span>
-                  <span className="flex-1 truncate">{ch.name}</span>
-                </button>
-              ))}
+              {chapters.map(ch => {
+                const isActive = activeChapter === ch.id;
+                const statusMeta = CHAPTER_STATUS[ch.status] || CHAPTER_STATUS.empty;
+                const noteCount = ch.notes?.length || 0;
+                // hover tooltip 内容(原生 title 实现 — 简单可靠,无需自建 popper)
+                const tipParts = [`${ch.num}. ${ch.name}`, statusMeta.label];
+                if (ch.lastModifier) tipParts.push(`最后由 ${ch.lastModifier}`);
+                if (ch.lastModifiedAt) tipParts.push(ch.lastModifiedAt);
+                if (noteCount > 0) tipParts.push(`${noteCount} 条备注:${ch.notes[0].text}`);
+                const tip = tipParts.join(" · ");
+                return (
+                  <button
+                    key={ch.id}
+                    onClick={() => setActiveChapter(ch.id)}
+                    title={tip}
+                    className={`w-full flex items-center gap-2 px-2 py-1 rounded-[6px] text-[12px] text-left transition-colors group/ch ${
+                      isActive
+                        ? "bg-[var(--accent-soft)] text-[var(--accent-ink)] font-medium"
+                        : "text-[var(--ink-2)] hover:bg-[#EEEAF7]"
+                    }`}
+                  >
+                    <span className="w-2 flex-shrink-0">
+                      {ch.status === "done" && <Check size={9} className="text-[var(--success)]" strokeWidth={3} />}
+                      {ch.status === "in-progress" && <span className="block w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />}
+                      {ch.status === "warn" && <span className="block w-1.5 h-1.5 rounded-full bg-[var(--warning)]" />}
+                      {ch.status === "empty" && <span className="block w-1.5 h-1.5 rounded-full bg-[var(--border-strong)] opacity-60" />}
+                    </span>
+                    <span className="font-mono text-[11px] text-[var(--ink-3)] w-4 flex-shrink-0">{ch.num}</span>
+                    <span className="flex-1 truncate">{ch.name}</span>
+                    {/* 有备注 → 右侧黄色小灯泡 + 数字角标 */}
+                    {noteCount > 0 && (
+                      <span className="flex items-center gap-0.5 flex-shrink-0">
+                        <Lightbulb
+                          size={9}
+                          strokeWidth={2.4}
+                          className="text-[var(--warning)] opacity-70 group-hover/ch:opacity-100"
+                        />
+                        {noteCount > 1 && (
+                          <span className="font-mono text-[9px] text-[var(--warning)] opacity-70 group-hover/ch:opacity-100">
+                            {noteCount}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+              {/* 大纲底部统计 — 4 段堆叠对齐 WritingDoingMain 视觉 */}
               <div className="mt-3 pt-3 border-t border-[var(--border)] px-2 space-y-1 text-[11px] text-[var(--ink-3)]">
                 <div className="flex items-center gap-1.5">
                   <Check size={9} className="text-[var(--success)]" strokeWidth={3} />
-                  <span>已完成 12 节</span>
+                  <span>已完成 {progress.done} 节</span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />
-                  <span>当前 1 节</span>
+                {progress.inProgress > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />
+                    <span>写作中 {progress.inProgress} 节</span>
+                  </div>
+                )}
+                {progress.warn > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--warning)]" />
+                    <span>需复核 {progress.warn} 节</span>
+                  </div>
+                )}
+                {progress.empty > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--border-strong)] opacity-60" />
+                    <span>空白 {progress.empty} 节</span>
+                  </div>
+                )}
+                <div className="pt-1.5 mt-1.5 border-t border-[var(--border)] flex items-center justify-between font-mono">
+                  <span>整体完成度</span>
+                  <span className="text-[var(--ink)] font-semibold">{progress.percent}%</span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--warning)]" />
-                  <span>待补 3 节</span>
+                {/* 4 段堆叠进度条 — 对齐 WritingDoingMain 视觉 */}
+                <div
+                  className="flex h-[4px] rounded-full overflow-hidden bg-[#F4F2FA]"
+                  title={`已完成 ${progress.done} · 写作中 ${progress.inProgress} · 需复核 ${progress.warn} · 空白 ${progress.empty}`}
+                >
+                  {progress.done > 0 && <div style={{ width: `${(progress.done/progress.total)*100}%`, background: CHAPTER_STATUS.done.dot }} />}
+                  {progress.inProgress > 0 && <div style={{ width: `${(progress.inProgress/progress.total)*100}%`, background: CHAPTER_STATUS["in-progress"].dot }} />}
+                  {progress.warn > 0 && <div style={{ width: `${(progress.warn/progress.total)*100}%`, background: CHAPTER_STATUS.warn.dot }} />}
                 </div>
               </div>
             </div>
@@ -2467,6 +2981,153 @@ const DocEditMain = ({ payload }) => {
         {/* 中:正文 — 按章节动态渲染 */}
         <main className="flex-1 overflow-y-auto scrollbar-thin">
           <div className="max-w-[680px] mx-auto px-8 py-7">
+            {/* 章节状态栏 — 状态切换 / 修改人 / 备注 */}
+            <div className="mb-5 -mx-2 px-3 py-2.5 bg-[#FBFAFD] border border-[var(--border)] rounded-[10px]">
+              <div className="flex items-start gap-3 flex-wrap">
+                {/* 状态徽标(点击展开下拉,直接选目标状态) */}
+                <div className="relative flex-shrink-0">
+                  <button
+                    onClick={() => { setStatusMenuOpen(o => !o); setNoteEditorOpen(false); }}
+                    className="flex items-center gap-1.5 pl-2 pr-1.5 py-1 rounded-[6px] text-[11px] font-medium transition-all hover:opacity-80"
+                    style={{
+                      background: CHAPTER_STATUS[activeChapterObj.status]?.bg || "transparent",
+                      color: CHAPTER_STATUS[activeChapterObj.status]?.ink || "#9B95A8",
+                      border: `1px solid ${CHAPTER_STATUS[activeChapterObj.status]?.dot || "#C9C2DD"}`,
+                    }}
+                    title="切换章节状态"
+                  >
+                    <span
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{ background: CHAPTER_STATUS[activeChapterObj.status]?.dot }}
+                    />
+                    <span>{CHAPTER_STATUS[activeChapterObj.status]?.label || "空白"}</span>
+                    <ChevronDown size={10} strokeWidth={2.4} className="opacity-70" />
+                  </button>
+                  {statusMenuOpen && (
+                    <>
+                      {/* click-outside 遮罩 */}
+                      <div
+                        className="fixed inset-0 z-30"
+                        onClick={() => setStatusMenuOpen(false)}
+                      />
+                      <div
+                        className="absolute left-0 mt-1 w-36 bg-white border border-[var(--border)] rounded-[8px] py-1 anim-fade-up"
+                        style={{ zIndex: 31, boxShadow: "0 8px 24px rgba(24,20,38,0.10)" }}
+                      >
+                        {CHAPTER_STATUS_CYCLE.map(s => {
+                          const meta = CHAPTER_STATUS[s];
+                          const active = activeChapterObj.status === s;
+                          return (
+                            <button
+                              key={s}
+                              onClick={() => {
+                                setChapterStatus(activeChapter, s);
+                                setStatusMenuOpen(false);
+                              }}
+                              className={`w-full flex items-center gap-2 px-2.5 h-7 text-[11px] transition-colors ${
+                                active ? "bg-[#EEEAF7]" : "hover:bg-[#F4F2FA]"
+                              }`}
+                            >
+                              <span
+                                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                                style={{ background: meta.dot }}
+                              />
+                              <span className="flex-1 text-left" style={{ color: meta.ink }}>{meta.label}</span>
+                              {active && <Check size={10} strokeWidth={2.6} className="text-[var(--accent)]" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* 修改人 / 时间 */}
+                {activeChapterObj.lastModifier ? (
+                  <div className="flex items-center gap-1.5 text-[11px] text-[var(--ink-3)] font-mono">
+                    <User size={11} strokeWidth={2} />
+                    <span>最后由</span>
+                    <span className="text-[var(--ink-2)] font-medium">{activeChapterObj.lastModifier}</span>
+                    <span className="text-[var(--border-strong)]">·</span>
+                    <span>{activeChapterObj.lastModifiedAt}</span>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-[var(--ink-3)] italic">未编辑过</div>
+                )}
+
+                <div className="flex-1 min-w-0" />
+
+                {/* 备注按钮 — 显示备注数 + 点击打开备注弹窗 */}
+                <button
+                  onClick={() => { setNoteEditorOpen(o => !o); setStatusMenuOpen(false); }}
+                  className={`flex items-center gap-1 h-6 px-1.5 rounded-[4px] text-[11px] transition-colors flex-shrink-0 ${
+                    noteEditorOpen
+                      ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]"
+                      : (activeChapterObj.notes?.length > 0)
+                        ? "text-[var(--warning)] hover:bg-[#FCEFCB]/60"
+                        : "text-[var(--ink-3)] hover:bg-[#EEEAF7] hover:text-[var(--ink)]"
+                  }`}
+                  title={activeChapterObj.notes?.length > 0 ? `${activeChapterObj.notes.length} 条备注` : "添加备注"}
+                >
+                  <Lightbulb size={11} strokeWidth={2.2} />
+                  <span className="font-mono">{activeChapterObj.notes?.length || 0}</span>
+                </button>
+
+                {/* 章节切换按钮(上一章/下一章) */}
+                <div className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => {
+                      const idx = chapters.findIndex(c => c.id === activeChapter);
+                      if (idx > 0) setActiveChapter(chapters[idx - 1].id);
+                    }}
+                    disabled={chapters.findIndex(c => c.id === activeChapter) === 0}
+                    className="w-6 h-6 rounded-[4px] flex items-center justify-center text-[var(--ink-3)] hover:bg-[#EEEAF7] hover:text-[var(--ink)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="上一章"
+                  >
+                    <ChevronUp size={11} strokeWidth={2.2} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      const idx = chapters.findIndex(c => c.id === activeChapter);
+                      if (idx < chapters.length - 1) setActiveChapter(chapters[idx + 1].id);
+                    }}
+                    disabled={chapters.findIndex(c => c.id === activeChapter) === chapters.length - 1}
+                    className="w-6 h-6 rounded-[4px] flex items-center justify-center text-[var(--ink-3)] hover:bg-[#EEEAF7] hover:text-[var(--ink)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="下一章"
+                  >
+                    <ChevronDown size={11} strokeWidth={2.2} />
+                  </button>
+                </div>
+              </div>
+
+              {/* 备注预览(收起态)— 只显最新一条 */}
+              {!noteEditorOpen && activeChapterObj.notes?.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-[var(--border)] flex items-start gap-1.5 text-[11px] text-[var(--ink-2)]">
+                  <Lightbulb size={11} strokeWidth={2} className="text-[var(--warning)] mt-0.5 flex-shrink-0" />
+                  <span className="leading-snug flex-1">{activeChapterObj.notes[0].text}</span>
+                  {activeChapterObj.notes.length > 1 && (
+                    <button
+                      onClick={() => setNoteEditorOpen(true)}
+                      className="text-[10px] text-[var(--accent-ink)] hover:underline flex-shrink-0 font-mono"
+                    >
+                      +{activeChapterObj.notes.length - 1} 更多
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* 备注编辑器(展开态)— 列表 + 添加输入框 */}
+              {noteEditorOpen && (
+                <ChapterNoteEditor
+                  chapter={activeChapterObj}
+                  currentUser={currentUser}
+                  onAdd={(text) => addChapterNote(activeChapter, text)}
+                  onDelete={(noteId) => deleteChapterNote(activeChapter, noteId)}
+                  onClose={() => setNoteEditorOpen(false)}
+                />
+              )}
+            </div>
+
             <ChapterContent
               chapter={activeChapterObj}
               chapterData={CHAPTERS_DATA[activeChapter]}
@@ -2494,6 +3155,13 @@ const DocEditMain = ({ payload }) => {
                 <span className="text-[var(--border-strong)]">·</span>
                 <span>右侧 AI 对话随时帮你改</span>
               </div>
+              {/* 文档级备注 */}
+              {docNote && (
+                <div className="mt-3 px-3 py-2 bg-[var(--accent-soft)]/30 border-l-2 border-[var(--accent)] rounded-r-[6px] text-[12px] text-[var(--ink-2)] leading-snug">
+                  <span className="font-mono text-[10px] text-[var(--accent-ink)] uppercase tracking-wider mr-1.5">手册备注</span>
+                  {docNote}
+                </div>
+              )}
             </div>
           </div>
         </main>
@@ -3308,6 +3976,16 @@ const ChangePlanMain = ({ payload, onEnterEdit }) => {
   const targetState = payload?.targetState || "draft";
   const reference = payload?.reference || REFERENCE_LIBRARY[0];
   const [showRefList, setShowRefList] = useState(false);
+  // 展开/折叠的章节 id 集合(同时支持多个展开)
+  const [expandedChapters, setExpandedChapters] = useState(new Set());
+  const toggleExpanded = (chId) => {
+    setExpandedChapters(prev => {
+      const next = new Set(prev);
+      if (next.has(chId)) next.delete(chId);
+      else next.add(chId);
+      return next;
+    });
+  };
 
   const projectTypeLabels = {
     new:     "新产品第一版",
@@ -3453,39 +4131,102 @@ const ChangePlanMain = ({ payload, onEnterEdit }) => {
                 const TypeIcon = typeIcon[c.type] || FileText;
                 const ds = diffStyle[c.difficulty];
                 const ai = aiModeStyle[c.ai];
+                const expanded = expandedChapters.has(c.ch);
+                const hasExpansion = c.aiSuggestion || c.riskNote;
                 return (
                   <div
                     key={c.ch}
-                    className={`px-4 py-3 flex items-start gap-3 hover:bg-[#FAFAFE] transition-colors ${
+                    className={`${
                       i < CHANGE_PLAN_SAMPLE.length - 1 ? "border-b border-[var(--border)]" : ""
                     } ${c.ai === "skip" ? "opacity-50" : ""}`}
                   >
-                    <span className="font-mono text-[11px] text-[var(--ink-3)] w-5 flex-shrink-0 mt-0.5">{c.ch}</span>
-                    <div className="w-7 h-7 rounded-[6px] bg-[#F4F2FA] flex items-center justify-center flex-shrink-0">
-                      <TypeIcon size={12} className="text-[var(--ink-2)]" strokeWidth={2} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-baseline gap-2 mb-0.5">
-                        <span className="text-[13px] font-medium text-[var(--ink)]">{c.name}</span>
-                        <span
-                          className="text-[11px] font-mono px-1.5 py-0 rounded font-semibold"
-                          style={{ background: ds.bg, color: ds.ink }}
-                        >
-                          {ds.label}
-                        </span>
+                    {/* 主行 — 可点击展开 */}
+                    <div
+                      onClick={() => hasExpansion && toggleExpanded(c.ch)}
+                      className={`px-4 py-3 flex items-start gap-3 transition-colors ${
+                        hasExpansion
+                          ? "cursor-pointer hover:bg-[#FAFAFE]"
+                          : ""
+                      } ${expanded ? "bg-[#FAFAFE]" : ""}`}
+                    >
+                      <span className="font-mono text-[11px] text-[var(--ink-3)] w-5 flex-shrink-0 mt-0.5">{c.ch}</span>
+                      <div className="w-7 h-7 rounded-[6px] bg-[#F4F2FA] flex items-center justify-center flex-shrink-0">
+                        <TypeIcon size={12} className="text-[var(--ink-2)]" strokeWidth={2} />
                       </div>
-                      <div className="text-[12px] text-[var(--ink-2)] leading-snug">{c.diff}</div>
-                      {c.note && (
-                        <div className="text-[11px] text-[var(--ink-3)] mt-1 italic flex items-start gap-1">
-                          <Lightbulb size={10} className="flex-shrink-0 mt-0.5 text-[var(--warning)]" />
-                          <span>{c.note}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline gap-2 mb-0.5">
+                          <span className="text-[13px] font-medium text-[var(--ink)]">{c.name}</span>
+                          <span
+                            className="text-[11px] font-mono px-1.5 py-0 rounded font-semibold"
+                            style={{ background: ds.bg, color: ds.ink }}
+                          >
+                            {ds.label}
+                          </span>
+                          {/* 风险提示徽标(在主行就提示) */}
+                          {c.riskNote && (
+                            <span className="text-[10px] font-mono px-1 py-0 rounded bg-[var(--danger-soft)] text-[var(--danger)] flex items-center gap-0.5">
+                              <AlertTriangle size={9} strokeWidth={2.4} />
+                              <span>风险</span>
+                            </span>
+                          )}
                         </div>
+                        <div className="text-[12px] text-[var(--ink-2)] leading-snug">{c.diff}</div>
+                        {c.note && !expanded && (
+                          <div className="text-[11px] text-[var(--ink-3)] mt-1 italic flex items-start gap-1">
+                            <Lightbulb size={10} className="flex-shrink-0 mt-0.5 text-[var(--warning)]" />
+                            <span>{c.note}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                        <span className="text-[11px] font-medium" style={{ color: ai.ink }}>{ai.label}</span>
+                        <span className="text-[11px] font-mono text-[var(--ink-3)]">{c.est}</span>
+                      </div>
+                      {/* 展开图标(只在有可展开内容时显示) */}
+                      {hasExpansion && (
+                        <ChevronDown
+                          size={13}
+                          strokeWidth={2}
+                          className={`text-[var(--ink-3)] flex-shrink-0 mt-0.5 transition-transform ${expanded ? "rotate-180" : ""}`}
+                        />
                       )}
                     </div>
-                    <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-                      <span className="text-[11px] font-medium" style={{ color: ai.ink }}>{ai.label}</span>
-                      <span className="text-[11px] font-mono text-[var(--ink-3)]">{c.est}</span>
-                    </div>
+
+                    {/* 展开内容 */}
+                    {expanded && hasExpansion && (
+                      <div className="px-4 pb-3 pl-[64px] space-y-2 anim-fade-up">
+                        {/* AI 建议 */}
+                        {c.aiSuggestion && (
+                          <div className="bg-[var(--accent-soft)]/40 border-l-2 border-[var(--accent)] rounded-r-[6px] px-3 py-2">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <Sparkles size={11} strokeWidth={2.2} className="text-[var(--accent-ink)]" />
+                              <span className="font-mono text-[10px] tracking-wider uppercase text-[var(--accent-ink)]">AI 建议</span>
+                            </div>
+                            <div className="text-[12px] text-[var(--ink-2)] leading-relaxed">{c.aiSuggestion}</div>
+                          </div>
+                        )}
+                        {/* 注意事项(原 note 字段,展开时显示完整) */}
+                        {c.note && (
+                          <div className="bg-[#FCEFCB]/40 border-l-2 border-[var(--warning)] rounded-r-[6px] px-3 py-2">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <Lightbulb size={11} strokeWidth={2.2} className="text-[var(--warning)]" />
+                              <span className="font-mono text-[10px] tracking-wider uppercase text-[#92400E]">注意</span>
+                            </div>
+                            <div className="text-[12px] text-[var(--ink-2)] leading-relaxed">{c.note}</div>
+                          </div>
+                        )}
+                        {/* 风险 */}
+                        {c.riskNote && (
+                          <div className="bg-[var(--danger-soft)]/50 border-l-2 border-[var(--danger)] rounded-r-[6px] px-3 py-2">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <AlertTriangle size={11} strokeWidth={2.2} className="text-[var(--danger)]" />
+                              <span className="font-mono text-[10px] tracking-wider uppercase text-[var(--danger)]">风险提示</span>
+                            </div>
+                            <div className="text-[12px] text-[var(--ink-2)] leading-relaxed">{c.riskNote}</div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -3724,31 +4465,9 @@ const ReportMain = ({ payload }) => {
 // 11.6 ReviewInboxMain — 待我审核(用户视角的审核任务列表)
 // ============================================================
 const ReviewInboxMain = ({ payload }) => {
-  // 假数据:当前指派给"张文远"作为审核人的 2 项
-  const items = [
-    {
-      id: "rv-1",
-      ppn: "MP1582",
-      version: "v0.1",
-      type: "新产品",
-      submitter: "陈悦",
-      submittedAt: "5 月 4 日 10:23",
-      summary: "MP1582 初稿提交审核 — 3A 20V Buck,新增 PG 引脚",
-      chapters: 16,
-      changedChapters: 15,
-    },
-    {
-      id: "rv-2",
-      ppn: "TPS563200",
-      version: "v1.1",
-      type: "版本升级",
-      submitter: "张文远",
-      submittedAt: "5 月 3 日 16:45",
-      summary: "TPS563200 升级 v1.0 → v1.1 — IOUT 3A → 3.5A,加 PSR 反馈",
-      chapters: 16,
-      changedChapters: 8,
-    },
-  ];
+  const currentUser = useCurrentUser();
+  // 数据按当前角色取 — 不同角色看到不同的 inbox
+  const items = REVIEW_INBOX[currentUser.id] || [];
 
   return (
     <>
@@ -3819,18 +4538,9 @@ const ReviewInboxMain = ({ payload }) => {
 // 11.7 PublishInboxMain — 待我发布(用户视角的发布任务列表)
 // ============================================================
 const PublishInboxMain = ({ payload }) => {
-  // 假数据:已审批通过、等待发布的 1 项
-  const items = [
-    {
-      id: "pb-1",
-      ppn: "MP1482",
-      version: "v1.2",
-      approvedAt: "5 月 4 日 14:30",
-      approver: "陈悦",
-      summary: "MP1482 v1.2 已审批通过,待发布到官网与分销商",
-      changeNotes: "更新典型应用图,修订效率曲线",
-    },
-  ];
+  const currentUser = useCurrentUser();
+  // 数据按当前角色取 — 不同角色看到不同的 inbox
+  const items = PUBLISH_INBOX[currentUser.id] || [];
 
   return (
     <>
@@ -3902,8 +4612,13 @@ const PublishInboxMain = ({ payload }) => {
 // ============================================================
 const HistoryTableMain = ({ type }) => {
   // type: "review" | "publish"
+  const currentUser = useCurrentUser();
   const isReview = type === "review";
-  const allRecords = HISTORY_RECORDS.filter(r => r.type === type).sort((a, b) => b.timestamp - a.timestamp);
+  const userField = isReview ? "reviewer" : "publisher";
+  // 只看当前用户操作过的记录
+  const allRecords = HISTORY_RECORDS
+    .filter(r => r.type === type && r[userField] === currentUser.name)
+    .sort((a, b) => b.timestamp - a.timestamp);
   const [actionFilter, setActionFilter] = useState("all");
   const [openComment, setOpenComment] = useState(null);  // { record } | null
 
@@ -4221,9 +4936,10 @@ const PublishHistoryMain = () => <HistoryTableMain type="publish" />;
 // 11.10 WritingDoingMain — 写作中(操作记录流卡片样式)
 // ============================================================
 const WritingDoingMain = () => {
-  // 数据:张文远的 draft / review / rejected 产品
+  const currentUser = useCurrentUser();
+  // 数据:当前用户的 draft / review / rejected 产品
   const myDocs = ALL_PRODUCTS
-    .filter(p => p.owner === "张文远")
+    .filter(p => p.owner === currentUser.name)
     .filter(p => ["draft", "review", "rejected"].includes(p.reviewState))
     .sort((a, b) => (a._daysAgo || 0) - (b._daysAgo || 0))
     .slice(0, 30);  // 最多 30 条
@@ -4258,6 +4974,9 @@ const WritingDoingMain = () => {
               {myDocs.map((d, i) => {
                 const sb = stateBadge[d.reviewState];
                 const Icon = sb.icon;
+                const docDetails = getDocDetails(d);
+                const progress = computeChapterProgress(docDetails.chapters);
+                const lastMod = getLastModified(docDetails.chapters);
                 return (
                   <div
                     key={d.ppn}
@@ -4303,6 +5022,57 @@ const WritingDoingMain = () => {
                           <button className="w-7 h-7 rounded-[6px] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)] flex items-center justify-center text-[var(--ink-3)] transition-colors" title="删除草稿">
                             <X size={13} strokeWidth={2.2} />
                           </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 章节进度 — 4 段堆叠条 + 数字 + 最后修改 */}
+                    <div className="mt-3 pt-2.5 border-t border-[var(--border)]">
+                      <div className="flex items-center justify-between text-[11px] mb-1.5">
+                        <span className="text-[var(--ink-3)]">章节进度</span>
+                        <span className="font-mono">
+                          <span className="text-[var(--success)] font-semibold">{progress.done}</span>
+                          <span className="text-[var(--ink-3)]"> / {progress.total} 章</span>
+                          <span className="text-[var(--border-strong)] mx-1">·</span>
+                          <span className="text-[var(--ink-2)] font-medium">{progress.percent}%</span>
+                        </span>
+                      </div>
+                      <div className="flex h-[5px] rounded-full overflow-hidden bg-[#F4F2FA]" title={`已完成 ${progress.done} · 写作中 ${progress.inProgress} · 需复核 ${progress.warn} · 空白 ${progress.empty}`}>
+                        {progress.done > 0 && (
+                          <div style={{ width: `${(progress.done / progress.total) * 100}%`, background: CHAPTER_STATUS.done.dot }} />
+                        )}
+                        {progress.inProgress > 0 && (
+                          <div style={{ width: `${(progress.inProgress / progress.total) * 100}%`, background: CHAPTER_STATUS["in-progress"].dot }} />
+                        )}
+                        {progress.warn > 0 && (
+                          <div style={{ width: `${(progress.warn / progress.total) * 100}%`, background: CHAPTER_STATUS.warn.dot }} />
+                        )}
+                      </div>
+                      <div className="mt-1.5 flex items-center justify-between text-[10px] text-[var(--ink-3)]">
+                        <div className="flex items-center gap-2 font-mono">
+                          {progress.inProgress > 0 && (
+                            <span className="flex items-center gap-1">
+                              <span className="w-1 h-1 rounded-full" style={{ background: CHAPTER_STATUS["in-progress"].dot }} />
+                              {progress.inProgress} 写作中
+                            </span>
+                          )}
+                          {progress.warn > 0 && (
+                            <span className="flex items-center gap-1">
+                              <span className="w-1 h-1 rounded-full" style={{ background: CHAPTER_STATUS.warn.dot }} />
+                              {progress.warn} 需复核
+                            </span>
+                          )}
+                          {progress.empty > 0 && (
+                            <span className="flex items-center gap-1">
+                              <span className="w-1 h-1 rounded-full" style={{ background: CHAPTER_STATUS.empty.dot }} />
+                              {progress.empty} 空白
+                            </span>
+                          )}
+                        </div>
+                        {lastMod && (
+                          <div className="font-mono">
+                            最后修改 <span className="text-[var(--ink-2)]">{lastMod.modifier}</span> · {lastMod.at}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -4447,23 +5217,56 @@ const REFERENCE_LIBRARY = [
 ];
 
 // 改动清单(MP1582 基于 MP1482 升级,16 章逐项分析)
+//
+// 字段说明:
+//   ch / name / type        — 章节编号、名称、内容形态
+//   diff                     — 改动概要(主显示)
+//   difficulty               — easy / medium / hard
+//   ai                       — auto(自动) / assist(协作) / manual(手动) / skip(无需改动)
+//   est                      — 预估耗时
+//   note                     — 难点/注意事项("黄色灯泡"显示)
+//   aiSuggestion             — AI 准备好的具体动作话术(点开章节后展示)
+//   riskNote                 — 潜在风险/合规提示(红色)
 const CHANGE_PLAN_SAMPLE = [
-  { ch: "1",  name: "标题",         type: "text",  diff: "MP1482 → MP1582,2A → 3A,18V → 20V",                            difficulty: "easy",   ai: "auto",     est: "1 分钟" },
-  { ch: "2",  name: "特点",         type: "text",  diff: "新增 PG 引脚条目,IOUT/RDS(ON)/频率/效率 4 处数据更新",          difficulty: "medium", ai: "assist",   est: "5 分钟" },
-  { ch: "3",  name: "描述",         type: "text",  diff: "重写突出 PG + 600kHz + 95% 效率 + 9 引脚封装",                  difficulty: "hard",   ai: "assist",   est: "15 分钟", note: "功能原理软描述,深浅尺度需要把握 — 提到 PG 但不暴露内部比较器实现" },
-  { ch: "4",  name: "典型应用",     type: "text",  diff: "拓展应用场景:新增 5G 设备 / SSD / 工业自动化",                difficulty: "easy",   ai: "auto",     est: "2 分钟" },
-  { ch: "5",  name: "应用电路",     type: "image", diff: "新增 PG 引脚连接,加 10kΩ 上拉电阻和 PG 信号输出",              difficulty: "medium", ai: "assist",   est: "15 分钟", note: "需从素材库找带 PG 的 buck 参考电路" },
-  { ch: "6",  name: "封装信息",     type: "image", diff: "封装从 SOIC8 升级到 SOIC8E (Exposed Pad) + 新增 3x3 QFN-9",     difficulty: "medium", ai: "auto",     est: "5 分钟" },
-  { ch: "7",  name: "极限参数",     type: "table", diff: "VIN 上限 20V → 21V,Switch Node 21V → 24V,新增 PG -0.3V 到 +6V", difficulty: "easy",   ai: "auto",     est: "3 分钟" },
-  { ch: "8",  name: "推荐参数",     type: "table", diff: "VIN 工作范围 4.5–20V,VOUT 0.6–17V",                            difficulty: "easy",   ai: "auto",     est: "2 分钟" },
-  { ch: "9",  name: "电气参数",     type: "table", diff: "全表更新 + 增加 2 行 PG 项,VFB 0.923V → 0.6V,RDSON 130 → 100mΩ", difficulty: "hard",   ai: "assist",   est: "30 分钟", note: "需要等量产数据回填,AI 整理 Min/Typ/Max 三栏并校验单位" },
-  { ch: "10", name: "曲线性能图",   type: "image", diff: "全部重测:效率峰值 93% → 95%,频率特性图新增,负载瞬态新增",     difficulty: "hard",   ai: "manual",   est: "等数据",  note: "实验室回测,AI 无法生成,要等测试组" },
-  { ch: "11", name: "功能介绍",     type: "text",  diff: "新增 Power Good 功能章节,客户视角描述",                       difficulty: "hard",   ai: "assist",   est: "20 分钟", note: "最难章节 — 站在客户角度写,既要让 FAE 能讲清楚,又不能暴露内部 IP" },
-  { ch: "12", name: "应用指南",     type: "text",  diff: "新增 PG 引脚使用说明 + 开漏输出连接示例",                      difficulty: "medium", ai: "assist",   est: "10 分钟" },
-  { ch: "13", name: "PCB 应用指南", type: "image", diff: "新增 PG 引脚布线建议,Exposed Pad 散热焊盘 footprint",          difficulty: "medium", ai: "auto",     est: "5 分钟" },
-  { ch: "14", name: "订购信息",     type: "table", diff: "OPN 重新生成:MP1582DN-LF-Z (SOIC8E) / MP1582GD-LF-Z (QFN)",    difficulty: "easy",   ai: "auto",     est: "2 分钟" },
-  { ch: "15", name: "POD 图纸",     type: "image", diff: "封装变更后重新出 SOIC8E 和 3x3 QFN-9 两份 POD",                difficulty: "hard",   ai: "manual",   est: "等封装组" },
-  { ch: "16", name: "免责声明",     type: "text",  diff: "保留 MP1482 标准声明",                                          difficulty: "easy",   ai: "skip",     est: "—" },
+  { ch: "1",  name: "标题",         type: "text",  diff: "MP1482 → MP1582,2A → 3A,18V → 20V",                            difficulty: "easy",   ai: "auto",     est: "1 分钟",
+    aiSuggestion: "已识别 5 处替换:PPN、IOUT 标称、VIN 上限、副标题中的频率、芯片类型描述。直接套模板生成。" },
+  { ch: "2",  name: "特点",         type: "text",  diff: "新增 PG 引脚条目,IOUT/RDS(ON)/频率/效率 4 处数据更新",          difficulty: "medium", ai: "assist",   est: "5 分钟",
+    aiSuggestion: "我会保留 MP1482 的 11 项 features,新增第 12 项「Power Good Indicator」并把 IOUT、RDS(ON)、频率、效率四处数据替换为 MP1582 的实测值。",
+    riskNote: "PG 描述要避开「open-drain comparator」字样,客户视角下叙述为「外部信号通知主控芯片」。" },
+  { ch: "3",  name: "描述",         type: "text",  diff: "重写突出 PG + 600kHz + 95% 效率 + 9 引脚封装",                  difficulty: "hard",   ai: "assist",   est: "15 分钟", note: "功能原理软描述,深浅尺度需要把握 — 提到 PG 但不暴露内部比较器实现",
+    aiSuggestion: "已起草 3 版描述供你选:A 偏技术(强调架构)/ B 偏应用(强调省外围)/ C 偏卖点(强调 95% 效率)。建议选 B,跟客户使用场景对齐。",
+    riskNote: "MP1482 老描述有 1 处营销词「easy-to-use」需删,TI 风格规范不允许。" },
+  { ch: "4",  name: "典型应用",     type: "text",  diff: "拓展应用场景:新增 5G 设备 / SSD / 工业自动化",                difficulty: "easy",   ai: "auto",     est: "2 分钟",
+    aiSuggestion: "MP1482 原有 4 项(POL、机顶盒、路由器、监控),新增 3 项贴合 600kHz 高频优势(5G CPE、企业级 SSD、工业 PLC)。" },
+  { ch: "5",  name: "应用电路",     type: "image", diff: "新增 PG 引脚连接,加 10kΩ 上拉电阻和 PG 信号输出",              difficulty: "medium", ai: "assist",   est: "15 分钟", note: "需从素材库找带 PG 的 buck 参考电路",
+    aiSuggestion: "在素材库找到 3 个候选参考图(TPS54824 / LM3150 / LMR62421),建议基于 LMR62421 改 — 拓扑最接近,只需改 PPN、加一个 10kΩ 上拉到 VOUT。",
+    riskNote: "原 MP1482 应用图里电感标 4.7μH,新标 3.3μH(频率从 340kHz 升到 600kHz 后纹波目标),需要测试组确认 BOM。" },
+  { ch: "6",  name: "封装信息",     type: "image", diff: "封装从 SOIC8 升级到 SOIC8E (Exposed Pad) + 新增 3x3 QFN-9",     difficulty: "medium", ai: "auto",     est: "5 分钟",
+    aiSuggestion: "我从封装库直接调 SOIC8E 和 QFN-9 的标准尺寸图,生成两版封装信息页。Exposed Pad 标 GND,QFN 中心标 GND PAD。" },
+  { ch: "7",  name: "极限参数",     type: "table", diff: "VIN 上限 20V → 21V,Switch Node 21V → 24V,新增 PG -0.3V 到 +6V", difficulty: "easy",   ai: "auto",     est: "3 分钟",
+    aiSuggestion: "已对齐 TI 模板 8 行结构:VIN / VSW / VEN / VBOOT / VFB / VPG(新增)/ Tj / TSTG。所有 absolute max 比 recommended 上限留 1V 余量。" },
+  { ch: "8",  name: "推荐参数",     type: "table", diff: "VIN 工作范围 4.5–20V,VOUT 0.6–17V",                            difficulty: "easy",   ai: "auto",     est: "2 分钟",
+    aiSuggestion: "VOUT 下限按 VFB(0.6V)给出,上限按 90% 占空比保守估算 = 0.9 × 19V ≈ 17V。已校验 Tj 范围与极限参数表自洽。" },
+  { ch: "9",  name: "电气参数",     type: "table", diff: "全表更新 + 增加 2 行 PG 项,VFB 0.923V → 0.6V,RDSON 130 → 100mΩ", difficulty: "hard",   ai: "assist",   est: "30 分钟", note: "需要等量产数据回填,AI 整理 Min/Typ/Max 三栏并校验单位",
+    aiSuggestion: "我已搭好 33 行表格框架,标记了 11 行需量产实测数据(VFB tolerance、ICC、ILEAK、PG 阈值等),其余 22 行从设计参数推算。等测试组数据 → 一键填入。",
+    riskNote: "VFB 从 0.923V 改 0.6V 是 datasheet 重大变更,需要 PE 单独签字。已发起 issue tracker 单号 PE-2024-1138。" },
+  { ch: "10", name: "曲线性能图",   type: "image", diff: "全部重测:效率峰值 93% → 95%,频率特性图新增,负载瞬态新增",     difficulty: "hard",   ai: "manual",   est: "等数据",  note: "实验室回测,AI 无法生成,要等测试组",
+    aiSuggestion: "数据到位后,我可以从 raw CSV 自动生成 6 张标准曲线图(效率 vs 输出电流 × 3 个 VIN、负载瞬态 × 2 个 VOUT、频率响应)。",
+    riskNote: "测试组排期 5 月 8 日 - 14 日。如果赶送样,曲线图可标 PRELIMINARY 先发 alpha 版。" },
+  { ch: "11", name: "功能介绍",     type: "text",  diff: "新增 Power Good 功能章节,客户视角描述",                       difficulty: "hard",   ai: "assist",   est: "20 分钟", note: "最难章节 — 站在客户角度写,既要让 FAE 能讲清楚,又不能暴露内部 IP",
+    aiSuggestion: "已起草 PG 段落 3 版:A 250 字偏教学(适合教育市场)/ B 180 字偏使用(主推)/ C 120 字偏精简(放 features 之上)。建议选 B 入正文 + C 进 features。",
+    riskNote: "原版本 MP1482 的「current-mode control」原理段保留,但内部比较器架构不能写。法务初审已过(Ref. LR-2024-0521)。" },
+  { ch: "12", name: "应用指南",     type: "text",  diff: "新增 PG 引脚使用说明 + 开漏输出连接示例",                      difficulty: "medium", ai: "assist",   est: "10 分钟",
+    aiSuggestion: "在 MP1482 原有的电感选型 / 输入输出电容章节后,新增一节「PG 引脚使用」:解释开漏特性、推荐上拉值(2.2kΩ-10kΩ)、典型连接(MCU RESET_N、FPGA POR)。" },
+  { ch: "13", name: "PCB 应用指南", type: "image", diff: "新增 PG 引脚布线建议,Exposed Pad 散热焊盘 footprint",          difficulty: "medium", ai: "auto",     est: "5 分钟",
+    aiSuggestion: "Exposed Pad 焊盘 IPC-7351 标准生成 4×4 通孔阵列(20 mils)散热到底部 GND 平面。PG 走线避开 SW 节点,远离开关回路。" },
+  { ch: "14", name: "订购信息",     type: "table", diff: "OPN 重新生成:MP1582DN-LF-Z (SOIC8E) / MP1582GD-LF-Z (QFN)",    difficulty: "easy",   ai: "auto",     est: "2 分钟",
+    aiSuggestion: "按企业 OPN 规范生成 2 行:MP1582DN-LF-Z(SOIC8E,卷盘 2500/卷)、MP1582GD-LF-Z(QFN-9,卷盘 3000/卷)。MOQ、价格梯度、交付周期已查 ERP 同步过来。" },
+  { ch: "15", name: "POD 图纸",     type: "image", diff: "封装变更后重新出 SOIC8E 和 3x3 QFN-9 两份 POD",                difficulty: "hard",   ai: "manual",   est: "等封装组",
+    aiSuggestion: "封装组排期 5 月 6 日交首版 POD。我可以监听文件夹,POD 一进来就自动嵌入到本节。",
+    riskNote: "QFN-9 的 lead pitch 0.5mm,客户 PCB 工艺要求 4 层板 / Class 3,需在应用指南补充提示。" },
+  { ch: "16", name: "免责声明",     type: "text",  diff: "保留 MP1482 标准声明",                                          difficulty: "easy",   ai: "skip",     est: "—",
+    aiSuggestion: "无需改动 — 沿用 TI 标准免责模板 v3.2。" },
 ];
 
 // 版本树(MP1482 真实演进 + MP1582 在写)
@@ -4797,6 +5600,80 @@ const HISTORY_RECORDS = [
   { id: "h-p16", type: "publish", ppn: "TPS65072",  productTitle: "便携设备 PMIC",                        version: "v1.0", action: "released", channels: ["website", "distributor"], publisher: "张文远", comment: "首发",                              when: "1 月前",       timestamp: Date.now() - 35*24*3600*1000 },
 ];
 
+// ============================================================
+// 收件箱 mock —— 按 user.id 索引,切换角色后看到不同 inbox
+// ============================================================
+const REVIEW_INBOX = {
+  wenyuan: [
+    {
+      id: "rv-w1", ppn: "MP1582", version: "v0.1", type: "新产品",
+      submitter: "陈悦", submittedAt: "5 月 4 日 10:23",
+      summary: "MP1582 初稿提交审核 — 3A 20V Buck,新增 PG 引脚",
+      chapters: 16, changedChapters: 15,
+    },
+    {
+      id: "rv-w2", ppn: "TPS563200", version: "v1.1", type: "版本升级",
+      submitter: "李志强", submittedAt: "5 月 3 日 16:45",
+      summary: "TPS563200 升级 v1.0 → v1.1 — IOUT 3A → 3.5A,加 PSR 反馈",
+      chapters: 16, changedChapters: 8,
+    },
+  ],
+  chenyue: [
+    {
+      id: "rv-c1", ppn: "TPS54824", version: "v0.1", type: "新产品",
+      submitter: "张文远", submittedAt: "5 月 4 日 09:15",
+      summary: "TPS54824 初稿提交审核 — 8A 28V 同步降压(集成 FET)",
+      chapters: 16, changedChapters: 16,
+    },
+    {
+      id: "rv-c2", ppn: "TPS62410", version: "v0.5", type: "新产品",
+      submitter: "李志强", submittedAt: "5 月 3 日 11:30",
+      summary: "TPS62410 初稿提交 — 双路 Buck,效率曲线已补",
+      chapters: 18, changedChapters: 18,
+    },
+    {
+      id: "rv-c3", ppn: "TPS62130", version: "v1.2", type: "版本升级",
+      submitter: "王晓敏", submittedAt: "5 月 2 日 17:20",
+      summary: "TPS62130 v1.1 → v1.2 — 修订效率曲线",
+      chapters: 16, changedChapters: 4,
+    },
+  ],
+  lizhiqiang: [
+    {
+      id: "rv-l1", ppn: "BQ24617", version: "v1.4", type: "版本升级",
+      submitter: "吴静", submittedAt: "5 月 4 日 14:50",
+      summary: "BQ24617 v1.3 → v1.4 — 加入 USB-C PD 支持",
+      chapters: 14, changedChapters: 5,
+    },
+  ],
+};
+
+const PUBLISH_INBOX = {
+  wenyuan: [
+    {
+      id: "pb-w1", ppn: "MP1482", version: "v1.2",
+      approvedAt: "5 月 4 日 14:30", approver: "陈悦",
+      summary: "MP1482 v1.2 已审批通过,待发布到官网与分销商",
+      changeNotes: "更新典型应用图,修订效率曲线",
+    },
+  ],
+  chenyue: [
+    {
+      id: "pb-c1", ppn: "TPS563200", version: "v1.0",
+      approvedAt: "5 月 3 日 18:00", approver: "张文远",
+      summary: "TPS563200 v1.0 首发,等待发布到官网与分销商",
+      changeNotes: "首发,正式版",
+    },
+    {
+      id: "pb-c2", ppn: "TPS65217", version: "v1.3",
+      approvedAt: "5 月 3 日 11:00", approver: "张文远",
+      summary: "TPS65217 v1.3 已审批通过,待发布",
+      changeNotes: "更新 PMIC 时序图,增加典型应用",
+    },
+  ],
+  lizhiqiang: [],
+};
+
 // 渠道名称映射
 const CHANNEL_LABEL_MAP = {
   website:     "官网",
@@ -5008,7 +5885,9 @@ function matchPresetQA(userText) {
 // ============================================================
 
 // 系统 prompt — 给 AI 明确身份和能力
-const AI_SYSTEM_PROMPT = `你是华东芯片 Datapilot 平台的 AI 助手,帮助 PM 张文远管理 TI 电源管理 IC 的产品手册库。
+// AI 系统提示词(参数化用户名 — 切换角色后 AI 用对应用户称呼)
+function getSystemPrompt(userName = "用户") {
+  return `你是华东芯片 Datapilot 平台的 AI 助手,帮助 PM ${userName} 管理 TI 电源管理 IC 的产品手册库。
 
 # 你的核心能力
 1. **产品筛选** — 用户说"找 Buck 类、量产的产品"等
@@ -5036,6 +5915,7 @@ const AI_SYSTEM_PROMPT = `你是华东芯片 Datapilot 平台的 AI 助手,帮�
 - 涉及具体产品时,用 markdown 列表
 - 技术问题给具体数字和公式
 - 不要长篇大论(3-8 句为宜)`;
+}
 
 // 检查 AI API 是否可用
 function isAIAvailable() {
@@ -5044,7 +5924,7 @@ function isAIAvailable() {
 }
 
 // 调用 AI API(通过 /api/chat Vercel 代理 → DeepSeek)
-async function callAINative(messages) {
+async function callAINative(messages, userName) {
   const lastUser = messages.filter(m => m.role === "user").slice(-1)[0];
   const userMessage = lastUser?.content || "";
 
@@ -5058,7 +5938,7 @@ async function callAINative(messages) {
     }));
 
   const apiMessages = [
-    { role: "system", content: AI_SYSTEM_PROMPT },
+    { role: "system", content: getSystemPrompt(userName) },
     ...history,
   ];
 
@@ -5080,8 +5960,8 @@ async function callAINative(messages) {
 }
 
 // 伪流式:拿到完整结果后,按字符渐进 callback
-async function callAIStream(messages, onChunk) {
-  const fullText = await callAINative(messages);
+async function callAIStream(messages, onChunk, userName) {
+  const fullText = await callAINative(messages, userName);
   const chunkSize = 6;
   for (let i = chunkSize; i <= fullText.length; i += chunkSize) {
     onChunk(fullText.slice(0, i));
@@ -5245,7 +6125,9 @@ function buildMessagesForIntent(intentId, payload) {
 // ============================================================
 export default function DatapilotV6() {
   const [appState, setAppState] = useState("idle"); // idle | working
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useLocalStorage("datapilot:collapsed", false);
+  const [currentUserId, setCurrentUserId] = useLocalStorage("datapilot:currentUserId", DEFAULT_USER_ID);
+  const currentUser = getUserById(currentUserId);
   const [chatInput, setChatInput] = useState("");
   const [currentChatId, setCurrentChatId] = useState(null);
   const [currentSection, setCurrentSection] = useState("home");
@@ -5357,7 +6239,7 @@ export default function DatapilotV6() {
             userMsg,
             { role: "ai", content: renderAIBubble(fullText, []), rawText: fullText, streaming: true },
           ]);
-        });
+        }, currentUser.name);
         if (lastFullText) {
           const finalAiMsg = { role: "ai", content: renderAIBubble(lastFullText, []), rawText: lastFullText };
           const finalMessages = [userMsg, finalAiMsg];
@@ -5620,7 +6502,7 @@ export default function DatapilotV6() {
       "idle":          "用户在首页欢迎屏。",
     }[currentPage] || "";
 
-    const systemPrompt = `你是华东芯片 Datapilot 平台的 AI 助手,核心场景是帮 PM 张文远管理 TI 电源管理 IC 的产品手册库。
+    const systemPrompt = `你是华东芯片 Datapilot 平台的 AI 助手,核心场景是帮 PM ${currentUser.name} 管理 TI 电源管理 IC 的产品手册库。
 
 # 当前上下文
 ${pageContext}
@@ -5785,7 +6667,7 @@ ${JSON.stringify(messagesArr, null, 2)}
           ...messagesAfterUser,
           { role: "ai", content: renderAIBubble(fullText, []), rawText: fullText, streaming: true },
         ]);
-      });
+      }, currentUser.name);
 
       if (lastFullText) {
         const finalAiMsg = {
@@ -5856,6 +6738,7 @@ ${JSON.stringify(messagesArr, null, 2)}
   };
 
   return (
+    <CurrentUserContext.Provider value={currentUser}>
     <div
       className="font-body h-screen flex overflow-hidden p-2 gap-2 items-stretch"
       style={{ background: "#F1F1F4" }}
@@ -5871,6 +6754,11 @@ ${JSON.stringify(messagesArr, null, 2)}
           currentSubSection={currentSubSection}
           currentChatId={currentChatId}
           chatHistory={chatHistory}
+          currentUser={currentUser}
+          onSwitchUser={(uid) => {
+            setCurrentUserId(uid);
+            handleNewChat();  // 切换角色后回到首页(让用户看到新角色的视图)
+          }}
           onNewChat={handleNewChat}
           onSelectSection={handleSelectSection}
           onSelectChat={handleSelectChat}
@@ -5929,5 +6817,6 @@ ${JSON.stringify(messagesArr, null, 2)}
         />
       )}
     </div>
+    </CurrentUserContext.Provider>
   );
 }
