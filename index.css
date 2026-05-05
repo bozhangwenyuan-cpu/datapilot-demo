@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --accent: #5847CC;
+  --accent-ink: #3A23B0;
+  --accent-soft: #E8E2FF;
+  --ink: #181426;
+  --ink-2: #4A4458;
+  --ink-3: #6B6680;
+  --ink-4: #9B95A8;
+  --border: #E5E2EE;
+  --border-strong: #C9C2DD;
+  --warning: #D89020;
+  --warning-soft: #FCEFCB;
+  --success: #2E8B5A;
+  --success-soft: #E5F5EC;
+  --danger: #C53030;
+  --danger-soft: #FBE5EA;
+  --info: #3B82F6;
+  --info-soft: #DBEAFE;
+}
+
+body {
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  margin: 0;
+  background: #F1F1F4;
+  color: var(--ink);
+}
+
+.font-display { font-family: -apple-system, "PingFang SC", sans-serif; }
+.font-mono { font-family: "SF Mono", "Monaco", "Menlo", "Consolas", monospace; }
+.font-body { font-family: -apple-system, "PingFang SC", sans-serif; }
+
+.scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.anim-fade-up { animation: fade-up 0.3s ease-out; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.anim-spin { animation: spin 1s linear infinite; }
